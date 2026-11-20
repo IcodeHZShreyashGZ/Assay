@@ -1,4 +1,4 @@
-# SQL Copilot: Execution-Guided Text-to-SQL Agent with Schema RAG, QLoRA Specialization, and Sandboxed Verification
+# Assay: Execution-Guided Text-to-SQL Agent with Schema RAG, QLoRA Specialization, and Sandboxed Verification
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-PEFT%20%7C%20TRL-ee4c2c.svg)](https://pytorch.org/)
@@ -8,7 +8,7 @@
 
 ## Abstract
 
-**SQL Copilot** is a modular, empirically evaluated Text-to-SQL agent that translates natural language analytical queries into executable, read-only SQL over complex multi-table relational databases. Rather than relying on monolithic zero-shot prompting, the system decomposes query synthesis into five measurable stages: **bidirectional schema linking with hybrid cell-value retrieval**, **execution-guided iterative repair via LangGraph**, **QLoRA parameter-efficient specialization of compact open-weight code LLMs**, **dual-layer static and database-level safety enforcement**, and **domain-grounded enterprise deployment**.
+**Assay** is a modular, empirically evaluated Text-to-SQL agent that translates natural language analytical queries into executable, read-only SQL over complex multi-table relational databases. Rather than relying on monolithic zero-shot prompting, the system decomposes query synthesis into five measurable stages: **bidirectional schema linking with hybrid cell-value retrieval**, **execution-guided iterative repair via LangGraph**, **QLoRA parameter-efficient specialization of compact open-weight code LLMs**, **dual-layer static and database-level safety enforcement**, and **domain-grounded enterprise deployment**.
 
 To maintain methodological rigor, the repository separates the **Offline Benchmark Harness** (executing natively on SQLite for faithful reproduction of BIRD and Spider metrics) from the **Production Inference Service** (PostgreSQL, FastAPI, Docker, and Streamlit with explicit business-glossary grounding and abstention handling).
 
@@ -35,6 +35,8 @@ To maintain methodological rigor, the repository separates the **Offline Benchma
 ---
 
 ## System Architecture
+
+![SQL Copilot — Full Pipeline Workflow](documentation/Assay_Workflow.png)
 
 ```mermaid
 flowchart TD
