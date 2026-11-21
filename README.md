@@ -20,14 +20,14 @@ To maintain methodological rigor, the repository separates the **Offline Benchma
 
 | Metric Dimension         | Parameter                                       | Baseline (Stage 0) | Final System (Stage 3+4) |         Net Impact / Target          |
 | :----------------------- | :---------------------------------------------- | :----------------: | :----------------------: | :----------------------------------: |
-| **Core Accuracy**        | BIRD Dev Execution Accuracy (`EX`)              |      `49.2%`       |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
-| **Query Efficiency**     | BIRD Reward-Based Valid Efficiency (`R-VES`)    |      `36.3%`       |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
-| **Partial Match**        | BIRD `Soft F1-Score`                            |      `54.2%`       |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
+| **Core Accuracy**        | BIRD Dev Execution Accuracy (`EX`)              |      `49.20%`      |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
+| **Query Efficiency**     | BIRD Reward-Based Valid Efficiency (`R-VES`)    |      `36.30%`      |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
+| **Partial Match**        | BIRD `Soft F1-Score`                            |      `54.17%`      |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
 | **Generalization**       | Spider Dev Execution Accuracy (`EX`)            |     `[XX.X%]`      |        `[YY.Y%]`         |             `+[Δ.Δ] pp`              |
 | **Retrieval Quality**    | Schema Linking Recall (`SLR`) / Token Reduction |    `100% / 0%`     |    `[XX.X%] / -[YY%]`    |        `-[YY%]` prompt tokens        |
 | **Agent Resilience**     | Self-Repair Recovery Rate (≤ 3 attempts)        |       `0.0%`       |        `[XX.X%]`         |        `[X.XX]` avg. retries         |
 | **Inference Economics**  | Cost per 1,000 Queries (vs. Frontier API)       |     `$[X.XX]`      |        `$[Y.YY]`         |       `[Z.Z×]` cost reduction        |
-| **Serving Speed**        | End-to-End Latency (`p50` / `p95`)              |  `973 / 1991 ms`   |    `[XXX] / [XXX] ms`    |   Sub-second median / bounded tail   |
+| **Serving Speed**        | End-to-End Latency (`p50` / `p95`)              |   `0.97s / 1.99s`  |    `[XXX] / [XXX] ms`    |   Sub-second median / bounded tail   |
 | **Hardware Footprint**   | Peak Inference VRAM (4-bit NF4 QLoRA)           |     `[X.X] GB`     |        `[X.X] GB`        |       Runs on single 8 GB GPU        |
 | **Security & Trust**     | Adversarial SQL Block Rate (`n = 50`)           |        `—`         |     `[100%] (50/50)`     |     Zero destructive executions      |
 | **Enterprise Grounding** | Ambiguous / Out-of-Schema Abstention F1         |        `—`         |        `[XX.X%]`         | Prevents silent metric hallucination |
@@ -121,7 +121,7 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 
 | Stage   | Pipeline Configuration                             | BIRD Dev EX (%) | Δ EX (pp) | BIRD R-VES (%) | Spider Dev EX (%) | Schema Recall (%) | Repair Recovery (%) | Avg. Attempts |
 | :------ | :------------------------------------------------- | :-------------: | :-------: | :------------: | :---------------: | :---------------: | :-----------------: | :-----------: |
-| **0**   | Zero-Shot Baseline (Base Open-Weight)              |     `49.2`      |    `—`    |     `36.3`     |        `—`        |      `100.0`      |        `0.0`        |    `1.00`     |
+| **0**   | Zero-Shot Baseline (Base Open-Weight)              |     `49.20`     |    `—`    |    `36.30`     |        `—`        |      `100.0`      |        `0.0`        |    `1.00`     |
 | **1**   | + Compact Schema RAG & BM25/LCS Values             |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |        `0.0`        |    `1.00`     |
 | **2**   | + LangGraph Self-Repair Loop (≤ 3 retries, CTE)    |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |         `—`         |      `—`      |
 | **3**   | + QLoRA Fine-Tuned `Qwen2.5-Coder` (SFT / DPO)     |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |         `—`         |      `—`      |
@@ -131,7 +131,7 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 
 | Model / Stage                 | Simple EX (%) | Moderate EX (%) | Challenging EX (%) | Overall EX (%) | Simple → Challenging Drop (pp) |
 | :---------------------------- | :-----------: | :-------------: | :----------------: | :------------: | :----------------------------: |
-| Stage 0 (Base Zero-Shot)      |    `56.0`     |     `39.5`      |       `37.5`       |     `49.2`     |            `18.5`              |
+| Stage 0 (Base Zero-Shot)      |    `56.00`    |     `39.47`     |       `37.50`      |    `49.20`     |            `18.50`             |
 | Stage 2 (+ RAG + Self-Repair) |      `—`      |       `—`       |        `—`         |      `—`       |              `—`               |
 | Stage 3 (+ QLoRA Final)       |      `—`      |       `—`       |        `—`         |      `—`       |              `—`               |
 | Frontier API Reference        |      `—`      |       `—`       |        `—`         |      `—`       |              `—`               |
@@ -140,7 +140,7 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 
 | Configuration                               | Avg. Prompt Tokens | Token Reduction (%) | p50 Latency (ms) | p95 Latency (ms) | Peak VRAM (GB) | Cost / 1k Queries ($) |
 | :------------------------------------------ | :----------------: | :-----------------: | :--------------: | :--------------: | :------------: | :-------------------: |
-| Stage 0 (Raw DDL)                           |      `912.0`       |       `0.0%`        |     `973 ms`     |    `1991 ms`     |      `—`       |          `—`          |
+| Stage 0 (Raw DDL)                           |      `912.0`       |       `0.0%`        | `0.97s (973 ms)` | `1.99s (1991 ms)`|      `—`       |          `—`          |
 | Stage 1 (+ Schema RAG)                      |        `—`         |        `-—%`        |       `—`        |       `—`        |      `—`       |          `—`          |
 | Stage 3 (QLoRA + Repair, Local/Self-Hosted) |        `—`         |        `-—%`        |       `—`        |       `—`        |      `—`       |          `—`          |
 | Frontier API Reference                      |        `—`         |       `0.0%`        |       `—`        |       `—`        |     `N/A`      |          `—`          |
