@@ -19,11 +19,12 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from eval.metrics import compute_ex, compute_r_ves, compute_soft_f1, execute_query
 from eval.taxonomy import classify_error
 from src.llm import default_client
+from src.schema.linker import SchemaLinker
 
 
 def extract_raw_ddl(db_path: Union[str, Path]) -> str:
@@ -285,6 +286,244 @@ def run_stage_0(
     return summary
 
 
+def build_stage1_prompt(m_schema_str: str, evidence: str, question: str) -> Tuple[str, str]:
+    """Build system and user prompts for Stage 1 Schema Linking & Value RAG."""
+    system_prompt = (
+        "You are an expert SQL engineer. Given a compact database schema with types, foreign keys, "
+        "sample values, and domain evidence, write a single valid SQLite SQL query that answers the question accurately.\n"
+        "Strict Requirements:\n"
+        "1. Output ONLY the SQL query inside a ```sql``` code block. Do NOT include explanations, comments, or extra text.\n"
+        "2. For column names containing spaces or parentheses (e.g. `School Type`, `County Code`, `Enrollment (Ages 5-17)`), ALWAYS wrap them in backticks like `School Type` to prevent syntax errors.\n"
+        "3. For division involving integer columns, wrap numerators in `CAST(... AS REAL)` to prevent 0-truncation.\n"
+        "4. For string filter predicates, match exact values provided in the schema or evidence.\n"
+        "5. Join tables using explicit foreign key equality conditions."
+    )
+    user_prompt = (
+        f"{m_schema_str}\n\n"
+        f"【Domain Evidence】\n{evidence if evidence else 'None'}\n\n"
+        f"【Question】\n{question}\n\n"
+        f"Write the SQLite SQL query to answer the question:"
+    )
+    return system_prompt, user_prompt
+
+
+def run_stage_1(
+    slice_data: List[Dict[str, Any]],
+    db_base_dir: str,
+    index_dir: str = "data/benchmarks/indices",
+    log_path: str = "eval/logs/stage1_rag.jsonl",
+    result_path: str = "eval/results/stage1_rag.json",
+    limit: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Execute Stage 1 Schema Linking & Value RAG evaluation."""
+    total_items = len(slice_data) if limit is None else min(limit, len(slice_data))
+    items_to_run = slice_data[:total_items]
+
+    log_file = Path(log_path)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    res_file = Path(result_path)
+    res_file.parent.mkdir(parents=True, exist_ok=True)
+
+    traces: List[Dict[str, Any]] = []
+    latencies: List[float] = []
+    prompt_tokens_list: List[int] = []
+    completion_tokens_list: List[int] = []
+
+    diff_counts: Dict[str, Dict[str, float]] = {
+        "simple": {"total": 0, "correct": 0},
+        "moderate": {"total": 0, "correct": 0},
+        "challenging": {"total": 0, "correct": 0},
+    }
+    taxonomy_counts: Counter = Counter()
+    linkers: Dict[str, SchemaLinker] = {}
+
+    print(f"\n========================================================")
+    print(f"Starting Stage 1 Schema Linking & Value RAG ({total_items} queries)")
+    print(f"Model:   {default_client.generation_model}")
+    print(f"Indices: {index_dir}")
+    print(f"Target:  {log_path}")
+    print(f"========================================================\n")
+
+    # Clear previous log file if restarting run
+    with open(log_file, "w", encoding="utf-8") as f:
+        pass
+
+    start_time_all = time.time()
+
+    for idx, item in enumerate(items_to_run, start=1):
+        qid = item["question_id"]
+        db_id = item["db_id"]
+        question = item["question"]
+        evidence = item.get("evidence", "")
+        gold_sql = item["SQL"]
+        difficulty = item.get("difficulty", "moderate")
+
+        db_path = Path(db_base_dir) / db_id / f"{db_id}.sqlite"
+
+        # 1. Schema Linking & Value RAG
+        if db_id not in linkers:
+            linkers[db_id] = SchemaLinker(db_id, index_dir=index_dir)
+        linker = linkers[db_id]
+
+        t_rag_start = time.perf_counter()
+        linked = linker.link_and_prune(question, evidence, use_embeddings=True)
+        rag_elapsed = time.perf_counter() - t_rag_start
+
+        # 2. LLM Generation
+        sys_p, usr_p = build_stage1_prompt(linked.m_schema_str, evidence, question)
+        t_llm_start = time.perf_counter()
+        raw_output, usage = default_client.generate(
+            messages=[
+                {"role": "system", "content": sys_p},
+                {"role": "user", "content": usr_p},
+            ],
+            temperature=0.0,
+            num_ctx=8192,
+        )
+        llm_elapsed = time.perf_counter() - t_llm_start
+
+        # 3. Extract SQL
+        pred_sql = extract_sql_from_response(raw_output)
+
+        # 4. Execute Candidate SQL (isolated worker, 5s timeout, ?mode=ro)
+        pred_ok, pred_rows, pred_elapsed, pred_err = execute_query(db_path, pred_sql, timeout_sec=5.0)
+
+        # 5. Execute Gold SQL
+        gold_ok, gold_rows, gold_elapsed, gold_err = execute_query(db_path, gold_sql, timeout_sec=5.0)
+
+        # 6. Compute Metrics
+        ex = compute_ex(pred_rows, gold_rows, gold_sql=gold_sql)
+        r_ves = compute_r_ves(ex, pred_elapsed, gold_elapsed)
+        soft_f1 = compute_soft_f1(pred_rows, gold_rows)
+
+        # 7. Failure Taxonomy
+        error_category = None
+        if ex <= 0.0:
+            error_category = classify_error(
+                success=pred_ok,
+                error_message=pred_err,
+                pred_rows=pred_rows,
+                gold_rows=gold_rows,
+                pred_sql=pred_sql,
+                gold_sql=gold_sql,
+            )
+            taxonomy_counts[error_category] += 1
+
+        total_query_latency = rag_elapsed + llm_elapsed + pred_elapsed
+        latencies.append(total_query_latency)
+        prompt_tokens_list.append(usage["prompt_tokens"])
+        completion_tokens_list.append(usage["completion_tokens"])
+
+        if difficulty in diff_counts:
+            diff_counts[difficulty]["total"] += 1
+            if ex == 1.0:
+                diff_counts[difficulty]["correct"] += 1
+
+        trace = {
+            "question_id": qid,
+            "db_id": db_id,
+            "difficulty": difficulty,
+            "question": question,
+            "evidence": evidence,
+            "gold_sql": gold_sql,
+            "pred_sql": pred_sql,
+            "raw_output": raw_output,
+            "selected_tables": linked.selected_tables,
+            "matched_values_count": len(linked.matched_values),
+            "ex": ex,
+            "r_ves": r_ves,
+            "soft_f1": soft_f1,
+            "error_category": error_category,
+            "pred_success": pred_ok,
+            "pred_error": pred_err,
+            "rag_time_sec": rag_elapsed,
+            "llm_time_sec": llm_elapsed,
+            "pred_time_sec": pred_elapsed,
+            "gold_time_sec": gold_elapsed,
+            "prompt_tokens": usage["prompt_tokens"],
+            "completion_tokens": usage["completion_tokens"],
+            "total_tokens": usage["total_tokens"],
+        }
+        traces.append(trace)
+
+        # Stream trace to JSONL
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(trace, ensure_ascii=False) + "\n")
+
+        status_tag = "[PASS]" if ex == 1.0 else f"[FAIL: {error_category}]"
+        print(f"[{idx:3d}/{total_items:3d}] QID {qid:4d} ({db_id:18s}) | EX: {ex:.0f} | Soft F1: {soft_f1:.2f} | Latency: {total_query_latency:.2f}s | {status_tag}")
+
+    total_time_all = time.time() - start_time_all
+
+    # Compute Summary
+    num_ex = sum(t["ex"] for t in traces)
+    overall_ex = (num_ex / total_items) * 100.0 if total_items > 0 else 0.0
+    overall_r_ves = (sum(t["r_ves"] for t in traces) / total_items) * 100.0 if total_items > 0 else 0.0
+    overall_soft_f1 = (sum(t["soft_f1"] for t in traces) / total_items) * 100.0 if total_items > 0 else 0.0
+    avg_prompt_tokens = sum(prompt_tokens_list) / total_items if total_items > 0 else 0.0
+    avg_comp_tokens = sum(completion_tokens_list) / total_items if total_items > 0 else 0.0
+
+    sorted_lat = sorted(latencies)
+    p50_lat = sorted_lat[int(len(sorted_lat) * 0.50)] if sorted_lat else 0.0
+    p95_lat = sorted_lat[int(len(sorted_lat) * 0.95)] if sorted_lat else 0.0
+
+    diff_breakdown = {}
+    for d, counts in diff_counts.items():
+        tot = counts["total"]
+        cor = counts["correct"]
+        diff_breakdown[d] = {
+            "total": tot,
+            "correct": cor,
+            "ex_pct": (cor / tot * 100.0) if tot > 0 else 0.0,
+        }
+
+    summary = {
+        "stage": 1,
+        "description": "Schema Linking & Value RAG (M-Schema)",
+        "model": default_client.generation_model,
+        "total_queries": total_items,
+        "execution_accuracy_pct": round(overall_ex, 2),
+        "r_ves_pct": round(overall_r_ves, 2),
+        "soft_f1_pct": round(overall_soft_f1, 2),
+        "avg_prompt_tokens": round(avg_prompt_tokens, 1),
+        "avg_completion_tokens": round(avg_comp_tokens, 1),
+        "p50_latency_sec": round(p50_lat, 3),
+        "p95_latency_sec": round(p95_lat, 3),
+        "wall_time_sec": round(total_time_all, 2),
+        "difficulty_breakdown": diff_breakdown,
+        "taxonomy_distribution": dict(taxonomy_counts),
+    }
+
+    with open(res_file, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    # Print Summary Table
+    print("\n" + "=" * 64)
+    print("STAGE 1 SCHEMA LINKING & VALUE RAG RESULTS SUMMARY")
+    print("=" * 64)
+    print(f"Total Evaluated Queries:   {total_items}")
+    print(f"Model:                     {default_client.generation_model}")
+    print(f"Execution Accuracy (EX):   {overall_ex:.2f}%")
+    print(f"Reward-Based VES (R-VES):  {overall_r_ves:.2f}%")
+    print(f"Soft F1-Score:             {overall_soft_f1:.2f}%")
+    print(f"Avg Prompt Tokens:         {avg_prompt_tokens:.1f}")
+    print(f"Avg Completion Tokens:     {avg_comp_tokens:.1f}")
+    print(f"p50 / p95 Latency:         {p50_lat:.2f}s / {p95_lat:.2f}s")
+    print(f"Total Run Duration:        {total_time_all:.1f}s")
+    print("-" * 64)
+    print("Difficulty Band Breakdown:")
+    for d, stats in diff_breakdown.items():
+        print(f"  {d.capitalize():12s}: {stats['correct']:3d} / {stats['total']:3d} ({stats['ex_pct']:.2f}%)")
+    print("-" * 64)
+    print("Failure Taxonomy:")
+    for cat, count in taxonomy_counts.most_common():
+        pct = (count / total_items) * 100.0
+        print(f"  {cat:20s}: {count:3d} ({pct:.1f}%)")
+    print("=" * 64 + "\n")
+
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description="Assay staged evaluation runner.")
     parser.add_argument(
@@ -329,6 +568,12 @@ def main():
     stage_str = str(args.stage).lower()
     if stage_str in ["0", "baseline", "stage0"]:
         run_stage_0(
+            slice_data=data,
+            db_base_dir=args.db_dir,
+            limit=args.limit,
+        )
+    elif stage_str in ["1", "rag", "stage1"]:
+        run_stage_1(
             slice_data=data,
             db_base_dir=args.db_dir,
             limit=args.limit,

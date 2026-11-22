@@ -1,38 +1,81 @@
 {
-  "stage": 0,
-  "description": "Zero-Shot Baseline (Raw DDL)",
-  "model": "qwen2.5-coder:7b",
-  "total_queries": 250,
-  "execution_accuracy_pct": 49.2,
-  "r_ves_pct": 36.3,
-  "soft_f1_pct": 54.17,
-  "avg_prompt_tokens": 912.0,
-  "avg_completion_tokens": 52.6,
-  "p50_latency_sec": 0.973,
-  "p95_latency_sec": 1.991,
-  "wall_time_sec": 276.87,
-  "difficulty_breakdown": {
-    "simple": {
-      "total": 150,
-      "correct": 84,
-      "ex_pct": 56.00000000000001
+  "stages": [
+    {
+      "stage": 0,
+      "description": "Zero-Shot Baseline (Raw DDL)",
+      "model": "qwen2.5-coder:7b",
+      "total_queries": 250,
+      "execution_accuracy_pct": 49.2,
+      "r_ves_pct": 36.3,
+      "soft_f1_pct": 54.17,
+      "avg_prompt_tokens": 912.0,
+      "avg_completion_tokens": 52.6,
+      "p50_latency_sec": 0.973,
+      "p95_latency_sec": 1.991,
+      "wall_time_sec": 276.87,
+      "difficulty_breakdown": {
+        "simple": {
+          "total": 150,
+          "correct": 84,
+          "ex_pct": 56.00000000000001
+        },
+        "moderate": {
+          "total": 76,
+          "correct": 30,
+          "ex_pct": 39.473684210526315
+        },
+        "challenging": {
+          "total": 24,
+          "correct": 9,
+          "ex_pct": 37.5
+        }
+      },
+      "taxonomy_distribution": {
+        "schema_missing": 24,
+        "empty_result": 22,
+        "logic_mismatch": 78,
+        "syntax_error": 2,
+        "type_or_div_error": 1
+      }
     },
-    "moderate": {
-      "total": 76,
-      "correct": 30,
-      "ex_pct": 39.473684210526315
-    },
-    "challenging": {
-      "total": 24,
-      "correct": 9,
-      "ex_pct": 37.5
+    {
+      "stage": 1,
+      "description": "Schema Linking & Value RAG (M-Schema)",
+      "model": "qwen2.5-coder:7b",
+      "total_queries": 250,
+      "execution_accuracy_pct": 48.8,
+      "r_ves_pct": 30.9,
+      "soft_f1_pct": 55.52,
+      "avg_prompt_tokens": 1751.1,
+      "avg_completion_tokens": 53.1,
+      "p50_latency_sec": 7.38,
+      "p95_latency_sec": 9.088,
+      "wall_time_sec": 1901.93,
+      "difficulty_breakdown": {
+        "simple": {
+          "total": 150,
+          "correct": 84,
+          "ex_pct": 56.00000000000001
+        },
+        "moderate": {
+          "total": 76,
+          "correct": 29,
+          "ex_pct": 38.15789473684211
+        },
+        "challenging": {
+          "total": 24,
+          "correct": 9,
+          "ex_pct": 37.5
+        }
+      },
+      "taxonomy_distribution": {
+        "schema_missing": 25,
+        "empty_result": 16,
+        "logic_mismatch": 82,
+        "syntax_error": 4,
+        "type_or_div_error": 1
+      }
     }
-  },
-  "taxonomy_distribution": {
-    "schema_missing": 24,
-    "empty_result": 22,
-    "logic_mismatch": 78,
-    "syntax_error": 2,
-    "type_or_div_error": 1
-  }
+  ],
+  "latest_stage": 1
 }

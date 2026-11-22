@@ -122,7 +122,7 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 | Stage   | Pipeline Configuration                             | BIRD Dev EX (%) | Δ EX (pp) | BIRD R-VES (%) | Spider Dev EX (%) | Schema Recall (%) | Repair Recovery (%) | Avg. Attempts |
 | :------ | :------------------------------------------------- | :-------------: | :-------: | :------------: | :---------------: | :---------------: | :-----------------: | :-----------: |
 | **0**   | Zero-Shot Baseline (Base Open-Weight)              |     `49.20`     |    `—`    |    `36.30`     |        `—`        |      `100.0`      |        `0.0`        |    `1.00`     |
-| **1**   | + Compact Schema RAG & BM25/LCS Values             |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |        `0.0`        |    `1.00`     |
+| **1**   | + Compact Schema RAG & BM25/LCS Values             |     `48.80`     |  `-0.40`  |    `30.90`     |        `—`        |      `99.40`      |        `0.0`        |    `1.00`     |
 | **2**   | + LangGraph Self-Repair Loop (≤ 3 retries, CTE)    |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |         `—`         |      `—`      |
 | **3**   | + QLoRA Fine-Tuned `Qwen2.5-Coder` (SFT / DPO)     |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |         `—`         |      `—`      |
 | **Ref** | Frontier API Baseline (Zero-Shot, No Hard Pruning) |       `—`       |    `—`    |      `—`       |        `—`        |      `100.0`      |        `0.0`        |    `1.00`     |
