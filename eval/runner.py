@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from eval.metrics import compute_ex, compute_r_ves, compute_soft_f1, execute_query
 from eval.taxonomy import classify_error
+from src.agent.graph import run_agent, validate_sql_ast
 from src.llm import default_client
 from src.schema.linker import SchemaLinker
 
@@ -524,6 +525,249 @@ def run_stage_1(
     return summary
 
 
+def run_stage_2(
+    slice_data: List[Dict[str, Any]],
+    db_base_dir: str,
+    index_dir: str = "data/benchmarks/indices",
+    log_path: str = "eval/logs/stage2_agent.jsonl",
+    result_path: str = "eval/results/stage2_agent.json",
+    limit: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Execute Stage 2 LangGraph Execution-Guided Self-Repair evaluation."""
+    total_items = len(slice_data) if limit is None else min(limit, len(slice_data))
+    items_to_run = slice_data[:total_items]
+
+    log_file = Path(log_path)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    res_file = Path(result_path)
+    res_file.parent.mkdir(parents=True, exist_ok=True)
+
+    traces: List[Dict[str, Any]] = []
+    latencies: List[float] = []
+    prompt_tokens_list: List[int] = []
+    completion_tokens_list: List[int] = []
+    attempts_list: List[int] = []
+
+    diff_counts: Dict[str, Dict[str, float]] = {
+        "simple": {"total": 0, "correct": 0},
+        "moderate": {"total": 0, "correct": 0},
+        "challenging": {"total": 0, "correct": 0},
+    }
+    taxonomy_counts: Counter = Counter()
+    linkers: Dict[str, SchemaLinker] = {}
+
+    total_queries_needing_repair = 0
+    repaired_success_count = 0
+
+    print(f"\n========================================================")
+    print(f"Starting Stage 2 LangGraph Self-Repair Agent ({total_items} queries)")
+    print(f"Model:   {default_client.generation_model}")
+    print(f"Max Retries (k): 3 (with attempt 2 CTE fallback)")
+    print(f"Target:  {log_path}")
+    print(f"========================================================\n")
+
+    # Clear previous log file if restarting run
+    with open(log_file, "w", encoding="utf-8") as f:
+        pass
+
+    start_time_all = time.time()
+
+    for idx, item in enumerate(items_to_run, start=1):
+        qid = item["question_id"]
+        db_id = item["db_id"]
+        question = item["question"]
+        evidence = item.get("evidence", "")
+        gold_sql = item["SQL"]
+        difficulty = item.get("difficulty", "moderate")
+
+        db_path = Path(db_base_dir) / db_id / f"{db_id}.sqlite"
+
+        # 1. Run Schema Linking
+        if db_id not in linkers:
+            linkers[db_id] = SchemaLinker(db_id, index_dir=index_dir)
+        linker = linkers[db_id]
+
+        t_rag_start = time.perf_counter()
+        linked = linker.link_and_prune(question, evidence, use_embeddings=True)
+        rag_elapsed = time.perf_counter() - t_rag_start
+
+        # 2. Run LangGraph Self-Repair Agent
+        t_agent_start = time.perf_counter()
+        final_state = run_agent(
+            question=question,
+            evidence=evidence,
+            db_id=db_id,
+            db_path=str(db_path),
+            dialect="sqlite",
+            pruned_schema=linked.m_schema_str,
+            max_retries=3,
+        )
+        agent_elapsed = time.perf_counter() - t_agent_start
+
+        pred_sql = final_state.get("candidate_sql", "")
+        attempts_count = len(final_state.get("attempts", []))
+        retries_used = final_state.get("retry_count", 0)
+        attempts_list.append(attempts_count)
+
+        # 3. Execute Candidate SQL against DB
+        pred_ok, pred_rows, pred_elapsed, pred_err = execute_query(db_path, pred_sql, timeout_sec=5.0)
+
+        # 4. Execute Gold SQL
+        gold_ok, gold_rows, gold_elapsed, gold_err = execute_query(db_path, gold_sql, timeout_sec=5.0)
+
+        # 5. Compute Metrics
+        ex = compute_ex(pred_rows, gold_rows, gold_sql=gold_sql)
+        r_ves = compute_r_ves(ex, pred_elapsed, gold_elapsed)
+        soft_f1 = compute_soft_f1(pred_rows, gold_rows)
+
+        # 6. Repair Recovery Tracking
+        needed_repair = (attempts_count > 1)
+        repaired = False
+        if needed_repair:
+            total_queries_needing_repair += 1
+            if ex == 1.0:
+                repaired = True
+                repaired_success_count += 1
+
+        # 7. Failure Taxonomy
+        error_category = None
+        if ex <= 0.0:
+            error_category = classify_error(
+                success=pred_ok,
+                error_message=pred_err,
+                pred_rows=pred_rows,
+                gold_rows=gold_rows,
+                pred_sql=pred_sql,
+                gold_sql=gold_sql,
+            )
+            taxonomy_counts[error_category] += 1
+
+        total_query_latency = rag_elapsed + agent_elapsed
+        latencies.append(total_query_latency)
+        prompt_tokens_list.append(final_state.get("total_prompt_tokens", 0))
+        completion_tokens_list.append(final_state.get("total_completion_tokens", 0))
+
+        if difficulty in diff_counts:
+            diff_counts[difficulty]["total"] += 1
+            if ex == 1.0:
+                diff_counts[difficulty]["correct"] += 1
+
+        trace = {
+            "question_id": qid,
+            "db_id": db_id,
+            "difficulty": difficulty,
+            "question": question,
+            "evidence": evidence,
+            "gold_sql": gold_sql,
+            "pred_sql": pred_sql,
+            "selected_tables": linked.selected_tables,
+            "attempts_count": attempts_count,
+            "retries_used": retries_used,
+            "needed_repair": needed_repair,
+            "repaired_success": repaired,
+            "ex": ex,
+            "r_ves": r_ves,
+            "soft_f1": soft_f1,
+            "error_category": error_category,
+            "pred_success": pred_ok,
+            "pred_error": pred_err,
+            "rag_time_sec": rag_elapsed,
+            "agent_time_sec": agent_elapsed,
+            "pred_time_sec": pred_elapsed,
+            "gold_time_sec": gold_elapsed,
+            "prompt_tokens": final_state.get("total_prompt_tokens", 0),
+            "completion_tokens": final_state.get("total_completion_tokens", 0),
+            "total_tokens": final_state.get("total_prompt_tokens", 0) + final_state.get("total_completion_tokens", 0),
+            "attempts_history": final_state.get("attempts", []),
+        }
+        traces.append(trace)
+
+        # Stream trace to JSONL
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(trace, ensure_ascii=False) + "\n")
+
+        status_tag = f"[PASS ({attempts_count} att)]" if ex == 1.0 else f"[FAIL ({attempts_count} att): {error_category}]"
+        print(f"[{idx:3d}/{total_items:3d}] QID {qid:4d} ({db_id:18s}) | EX: {ex:.0f} | Retries: {retries_used} | Latency: {total_query_latency:.2f}s | {status_tag}")
+
+    total_time_all = time.time() - start_time_all
+
+    # Compute Summary
+    num_ex = sum(t["ex"] for t in traces)
+    overall_ex = (num_ex / total_items) * 100.0 if total_items > 0 else 0.0
+    overall_r_ves = (sum(t["r_ves"] for t in traces) / total_items) * 100.0 if total_items > 0 else 0.0
+    overall_soft_f1 = (sum(t["soft_f1"] for t in traces) / total_items) * 100.0 if total_items > 0 else 0.0
+    avg_prompt_tokens = sum(prompt_tokens_list) / total_items if total_items > 0 else 0.0
+    avg_comp_tokens = sum(completion_tokens_list) / total_items if total_items > 0 else 0.0
+    avg_attempts = sum(attempts_list) / total_items if total_items > 0 else 1.0
+    repair_recovery_rate = (repaired_success_count / total_queries_needing_repair * 100.0) if total_queries_needing_repair > 0 else 0.0
+
+    sorted_lat = sorted(latencies)
+    p50_lat = sorted_lat[int(len(sorted_lat) * 0.50)] if sorted_lat else 0.0
+    p95_lat = sorted_lat[int(len(sorted_lat) * 0.95)] if sorted_lat else 0.0
+
+    diff_breakdown = {}
+    for d, counts in diff_counts.items():
+        tot = counts["total"]
+        cor = counts["correct"]
+        diff_breakdown[d] = {
+            "total": tot,
+            "correct": cor,
+            "ex_pct": (cor / tot * 100.0) if tot > 0 else 0.0,
+        }
+
+    summary = {
+        "stage": 2,
+        "description": "LangGraph Execution-Guided Self-Repair (k <= 3, CTE Fallback)",
+        "model": default_client.generation_model,
+        "total_queries": total_items,
+        "execution_accuracy_pct": round(overall_ex, 2),
+        "r_ves_pct": round(overall_r_ves, 2),
+        "soft_f1_pct": round(overall_soft_f1, 2),
+        "repair_recovery_rate_pct": round(repair_recovery_rate, 2),
+        "queries_needing_repair": total_queries_needing_repair,
+        "queries_repaired_successfully": repaired_success_count,
+        "avg_attempts": round(avg_attempts, 2),
+        "avg_prompt_tokens": round(avg_prompt_tokens, 1),
+        "avg_completion_tokens": round(avg_comp_tokens, 1),
+        "p50_latency_sec": round(p50_lat, 3),
+        "p95_latency_sec": round(p95_lat, 3),
+        "wall_time_sec": round(total_time_all, 2),
+        "difficulty_breakdown": diff_breakdown,
+        "taxonomy_distribution": dict(taxonomy_counts),
+    }
+
+    with open(res_file, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    # Print Summary Table
+    print("\n" + "=" * 64)
+    print("STAGE 2 LANGGRAPH SELF-REPAIR AGENT RESULTS SUMMARY")
+    print("=" * 64)
+    print(f"Total Evaluated Queries:   {total_items}")
+    print(f"Model:                     {default_client.generation_model}")
+    print(f"Execution Accuracy (EX):   {overall_ex:.2f}%")
+    print(f"Reward-Based VES (R-VES):  {overall_r_ves:.2f}%")
+    print(f"Soft F1-Score:             {overall_soft_f1:.2f}%")
+    print(f"Repair Recovery Rate:      {repair_recovery_rate:.2f}% ({repaired_success_count}/{total_queries_needing_repair})")
+    print(f"Average Attempts:          {avg_attempts:.2f}")
+    print(f"Avg Prompt Tokens:         {avg_prompt_tokens:.1f}")
+    print(f"Avg Completion Tokens:     {avg_comp_tokens:.1f}")
+    print(f"p50 / p95 Latency:         {p50_lat:.2f}s / {p95_lat:.2f}s")
+    print(f"Total Run Duration:        {total_time_all:.1f}s")
+    print("-" * 64)
+    print("Difficulty Band Breakdown:")
+    for d, stats in diff_breakdown.items():
+        print(f"  {d.capitalize():12s}: {stats['correct']:3d} / {stats['total']:3d} ({stats['ex_pct']:.2f}%)")
+    print("-" * 64)
+    print("Failure Taxonomy:")
+    for cat, count in taxonomy_counts.most_common():
+        pct = (count / total_items) * 100.0
+        print(f"  {cat:20s}: {count:3d} ({pct:.1f}%)")
+    print("=" * 64 + "\n")
+
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description="Assay staged evaluation runner.")
     parser.add_argument(
@@ -574,6 +818,12 @@ def main():
         )
     elif stage_str in ["1", "rag", "stage1"]:
         run_stage_1(
+            slice_data=data,
+            db_base_dir=args.db_dir,
+            limit=args.limit,
+        )
+    elif stage_str in ["2", "agent", "stage2"]:
+        run_stage_2(
             slice_data=data,
             db_base_dir=args.db_dir,
             limit=args.limit,

@@ -123,7 +123,7 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 | :------ | :------------------------------------------------- | :-------------: | :-------: | :------------: | :---------------: | :---------------: | :-----------------: | :-----------: |
 | **0**   | Zero-Shot Baseline (Base Open-Weight)              |     `49.20`     |    `—`    |    `36.30`     |        `—`        |      `100.0`      |        `0.0`        |    `1.00`     |
 | **1**   | + Compact Schema RAG & BM25/LCS Values             |     `48.80`     |  `-0.40`  |    `30.90`     |        `—`        |      `99.40`      |        `0.0`        |    `1.00`     |
-| **2**   | + LangGraph Self-Repair Loop (≤ 3 retries, CTE)    |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |         `—`         |      `—`      |
+| **2**   | + LangGraph Self-Repair Loop (≤ 3 retries, CTE)    |     `51.60`     |  `+2.40`  |    `41.40`     |        `—`        |      `99.40`      |       `10.87`       |    `1.42`     |
 | **3**   | + QLoRA Fine-Tuned `Qwen2.5-Coder` (SFT / DPO)     |       `—`       |   `+—`    |      `—`       |        `—`        |        `—`        |         `—`         |      `—`      |
 | **Ref** | Frontier API Baseline (Zero-Shot, No Hard Pruning) |       `—`       |    `—`    |      `—`       |        `—`        |      `100.0`      |        `0.0`        |    `1.00`     |
 
@@ -132,7 +132,7 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 | Model / Stage                 | Simple EX (%) | Moderate EX (%) | Challenging EX (%) | Overall EX (%) | Simple → Challenging Drop (pp) |
 | :---------------------------- | :-----------: | :-------------: | :----------------: | :------------: | :----------------------------: |
 | Stage 0 (Base Zero-Shot)      |    `56.00`    |     `39.47`     |       `37.50`      |    `49.20`     |            `18.50`             |
-| Stage 2 (+ RAG + Self-Repair) |      `—`      |       `—`       |        `—`         |      `—`       |              `—`               |
+| Stage 2 (+ RAG + Self-Repair) |    `57.33`    |     `44.74`     |       `37.50`      |    `51.60`     |            `19.83`             |
 | Stage 3 (+ QLoRA Final)       |      `—`      |       `—`       |        `—`         |      `—`       |              `—`               |
 | Frontier API Reference        |      `—`      |       `—`       |        `—`         |      `—`       |              `—`               |
 

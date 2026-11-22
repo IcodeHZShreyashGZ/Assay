@@ -1,0 +1,42 @@
+{
+  "stage": 2,
+  "description": "LangGraph Execution-Guided Self-Repair (k <= 3, CTE Fallback)",
+  "model": "qwen2.5-coder:7b",
+  "total_queries": 250,
+  "execution_accuracy_pct": 51.6,
+  "r_ves_pct": 41.4,
+  "soft_f1_pct": 59.24,
+  "repair_recovery_rate_pct": 10.87,
+  "queries_needing_repair": 46,
+  "queries_repaired_successfully": 5,
+  "avg_attempts": 1.42,
+  "avg_prompt_tokens": 2513.4,
+  "avg_completion_tokens": 90.0,
+  "p50_latency_sec": 7.798,
+  "p95_latency_sec": 12.818,
+  "wall_time_sec": 2132.62,
+  "difficulty_breakdown": {
+    "simple": {
+      "total": 150,
+      "correct": 86,
+      "ex_pct": 57.333333333333336
+    },
+    "moderate": {
+      "total": 76,
+      "correct": 34,
+      "ex_pct": 44.73684210526316
+    },
+    "challenging": {
+      "total": 24,
+      "correct": 9,
+      "ex_pct": 37.5
+    }
+  },
+  "taxonomy_distribution": {
+    "schema_missing": 15,
+    "logic_mismatch": 94,
+    "empty_result": 9,
+    "syntax_error": 2,
+    "type_or_div_error": 1
+  }
+}

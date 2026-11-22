@@ -124,26 +124,26 @@ python -m eval.runner --stage 0 --slice data/bird_dev_slice_250.json
 ---
 
 ### Stage 2 — Agentic Execution & Bounded Self-Correction (LangGraph)
-**Branch:** `stage-2-agent` | **Status:** `[ ] Pending`
+**Branch:** `stage-2-agent` | **Status:** `[x] Complete`
 
 **Objective:** Convert open-loop SQL generation into a closed-loop 4-node LangGraph state machine with execution feedback and CTE decomposition fallback.
 
 **Tasks:**
-- [ ] Implement `src/agent/state.py` (`AssayState` TypedDict tracking `question`, `evidence`, `db_id`, `pruned_schema`, `candidate_sql`, `execution_result`, `error_message`, `error_category`, `retry_count`).
-- [ ] Implement `src/agent/prompts.py`:
+- [x] Implement `src/agent/state.py` (`AssayState` TypedDict tracking `question`, `evidence`, `db_id`, `pruned_schema`, `candidate_sql`, `execution_result`, `error_message`, `error_category`, `retry_count`).
+- [x] Implement `src/agent/prompts.py`:
   - Dialect-aware SQLite generation prompt (explicitly warning about `CAST(... AS REAL)` division and backtick quoting).
   - Error-specific repair prompts tailored to each taxonomy bucket (syntax, missing column, empty result set `[]`, timeout).
   - **CTE Decomposition Fallback Prompt** triggered strictly on final retry ($k = 2$) to break complex queries into `WITH step1 AS (...), step2 AS (...)`.
-- [ ] Implement `src/agent/graph.py`:
+- [x] Implement `src/agent/graph.py`:
   - Nodes: `link_schema` $\to$ `generate_sql` $\to$ `execute_and_check` $\to$ `refine_sql`.
   - Conditional edge: exit immediately on valid non-empty result or when `retry_count == 3`.
-- [ ] Wire `--stage 2` into `eval/runner.py` and log retry recovery rate (% of initial failures fixed within $k \le 3$).
+- [x] Wire `--stage 2` into `eval/runner.py` and log retry recovery rate (% of initial failures fixed within $k \le 3$).
 
 **Verification Gate (Must Pass Before Stage 3):**
 ```bash
 python -m eval.runner --stage 2 --slice data/bird_dev_slice_250.json
 ```
-- Confirm zero infinite loops (hard cap `retry_count <= 3`), measurable EX gain over Stage 1, and documented p50/p95 latency impact.
+- Confirm zero infinite loops (hard cap `retry_count <= 3`), measurable EX gain over Stage 1, and documented p50/p95 latency impact. -> Passed: EX 51.60% (+2.80 pp over Stage 1), R-VES 41.40% (+10.50 pp), Soft F1 59.24% (+3.72 pp), 10.87% repair recovery rate, avg attempts 1.42.
 
 ---
 
@@ -213,7 +213,7 @@ Update this table and mirror it in `README.md` at the end of every stage:
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **0** | Zero-Shot Raw DDL | `qwen2.5-coder:7b` | 49.20 | 36.30 | 54.17 | 912.0 | 0.97 / 1.99 |
 | **1** | + Schema Linker & Value RAG | `qwen2.5-coder:7b` | 48.80 | 30.90 | 55.52 | 1751.1 | 7.38 / 9.09 |
-| **2** | + LangGraph Repair ($k \le 3$) | `qwen2.5-coder:7b` | — | — | — | — | — |
+| **2** | + LangGraph Repair ($k \le 3$) | `qwen2.5-coder:7b` | 51.60 | 41.40 | 59.24 | 2513.4 | 7.80 / 12.82 |
 | **3** | + 4-Bit QLoRA Fine-Tune | `assay-qwen` | — | — | — | — | — |
 | **4** | + `sqlglot` AST Guard & Abstention | `assay-qwen` | — | — | — | — | — |
 
