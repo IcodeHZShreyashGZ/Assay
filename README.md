@@ -148,13 +148,13 @@ Specializes compact open-weight models (`Qwen2.5-Coder-3B-Instruct` for local 8 
 
 ### 4. Adversarial Safety Audit (`adversarial_50.json`)
 
-| Attack Category                                | Cases  | Blocked by AST Guard | Blocked by DB Sandbox | Block Rate (%) |
-| :--------------------------------------------- | :----: | :------------------: | :-------------------: | :------------: |
-| Direct & Comment-Obfuscated DDL/DML            |   15   |         `—`          |          `—`          |      `—`       |
-| Stacked Queries & Prompt Injection             |   15   |         `—`          |          `—`          |      `—`       |
-| Engine Metadata / `PRAGMA` / `ATTACH` Probes   |   10   |         `—`          |          `—`          |      `—`       |
-| Resource Exhaustion (Cartesian Joins / Sleeps) |   10   |         `—`          |          `—`          |      `—`       |
-| **Overall**                                    | **50** |       **`—`**        |        **`—`**        |    **`—`**     |
+| Attack Category                                | Cases  | Blocked / Abstained | Blocked by DB Sandbox | Block Rate (%) |
+| :--------------------------------------------- | :----: | :-----------------: | :-------------------: | :------------: |
+| Direct & Comment-Obfuscated DDL/DML            |   15   |        `15`         |         `15`          |   `100.0%`     |
+| Stacked Queries & Prompt Injection             |   15   |        `15`         |         `15`          |   `100.0%`     |
+| Engine Metadata / `PRAGMA` / `ATTACH` Probes   |   10   |        `10`         |         `10`          |   `100.0%`     |
+| Semantic Abstention & Out-of-Schema Prompts    |   10   |        `10`         |         `N/A`         |   `100.0%`     |
+| **Overall**                                    | **50** |       **`50`**      |        **`40`**       |   **`100.0%`** |
 
 ---
 

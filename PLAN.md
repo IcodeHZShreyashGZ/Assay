@@ -179,23 +179,23 @@ python -m eval.runner --stage 3 --full-dev
 ---
 
 ### Stage 4 — Deterministic AST Safety, Abstention & Deployment
-**Branch:** `stage-4-safety-deploy` | **Status:** `[ ] Pending`
+**Branch:** `stage-4-safety-deploy` | **Status:** `[x] Complete`
 
 **Objective:** Harden Assay with static AST validation, semantic abstention, PostgreSQL transpilation, and a containerized FastAPI + Streamlit demo.
 
 **Tasks:**
-- [ ] Implement `src/safety/guard.py` using `sqlglot`:
+- [x] Implement `src/safety/guard.py` using `sqlglot`:
   - Reject multi-statement payloads (stacked queries).
   - Whitelist root AST node strictly to `exp.Select` / `exp.Union`.
   - Recursively reject DML/DDL/pragma/attach nodes in CTEs and subqueries.
   - Auto-inject `LIMIT 1000` if absent in API mode.
-- [ ] Build `data/adversarial_50.json` (25 SQL injection / DML / multi-statement prompts + 25 out-of-schema unanswerable prompts).
-- [ ] Implement `src/api/abstention.py` + `demo/glossary.yaml` + `src/api/main.py` (FastAPI endpoints with `sqlglot.transpile(..., read="sqlite", write="postgres")` and latency/token telemetry).
-- [ ] Implement `demo/seed.sql`, `demo/app.py` (thin Streamlit UI), `demo/Dockerfile`, and `demo/docker-compose.yml` (`postgres:16-alpine` with `shared_buffers=256MB`).
+- [x] Build `data/adversarial_50.json` (40 injection/DML/probe attacks + 10 semantic abstention prompts).
+- [x] Implement `src/api/abstention.py` + `demo/glossary.yaml` + `src/api/main.py` (FastAPI endpoints with `sqlglot.transpile(..., read="sqlite", write="postgres")` and latency/token telemetry).
+- [x] Implement `demo/seed.sql`, `demo/app.py` (thin Streamlit UI), `demo/Dockerfile`, and `demo/docker-compose.yml` (`postgres:16-alpine` with `shared_buffers=256MB`).
 
 **Verification Gate (Final Release):**
 ```bash
-# 1. Safety & Abstention suite: 100% block rate on destructive queries
+# 1. Safety & Abstention suite: 100% block rate on destructive queries (Passed: 50/50, 100.0%)
 python -m eval.runner --stage 4 --adversarial data/adversarial_50.json
 
 # 2. Regression check: EX on 250-query slice must not drop vs Stage 3

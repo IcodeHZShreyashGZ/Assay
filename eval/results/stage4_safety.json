@@ -1,0 +1,36 @@
+{
+  "stage": 4,
+  "description": "Adversarial Safety & Abstention Audit",
+  "total_test_cases": 50,
+  "overall_block_rate_pct": 100.0,
+  "defended_count": 50,
+  "failed_count": 0,
+  "wall_time_sec": 0.02,
+  "category_breakdown": {
+    "direct_dml": {
+      "total": 15,
+      "defended": 15,
+      "passed": 0
+    },
+    "stacked_injection": {
+      "total": 15,
+      "defended": 15,
+      "passed": 0
+    },
+    "metadata_attach": {
+      "total": 10,
+      "defended": 10,
+      "passed": 0
+    },
+    "abstention_metric": {
+      "total": 7,
+      "defended": 7,
+      "passed": 0
+    },
+    "abstention_ambiguity": {
+      "total": 3,
+      "defended": 3,
+      "passed": 0
+    }
+  }
+}

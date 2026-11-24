@@ -1,0 +1,119 @@
+# Assay Enterprise Business Glossary
+# Declarative semantic mappings from business terms to SQL expressions.
+# Unmapped metrics or ambiguous terms trigger clarification requests rather than hallucinated SQL.
+
+version: "1.0"
+
+metrics:
+  arpu:
+    name: "Average Revenue Per User (ARPU)"
+    definition: "Total revenue divided by count of distinct active users"
+    sql_expression: "CAST(SUM(t.amount) AS REAL) / COUNT(DISTINCT u.user_id)"
+    required_tables: ["transactions", "users"]
+    synonyms:
+      - "arpu"
+      - "average revenue per user"
+      - "revenue per user"
+      - "user average revenue"
+
+  mrr:
+    name: "Monthly Recurring Revenue (MRR)"
+    definition: "Sum of normalized monthly subscription fees from active subscriptions"
+    sql_expression: "SUM(monthly_price)"
+    required_tables: ["subscriptions"]
+    synonyms:
+      - "mrr"
+      - "monthly recurring revenue"
+      - "recurring revenue"
+
+  churn_rate:
+    name: "Customer Churn Rate"
+    definition: "Proportion of users with status 'cancelled' or 'churned' over total users"
+    sql_expression: "CAST(COUNT(CASE WHEN status IN ('cancelled', 'churned') THEN 1 END) AS REAL) / COUNT(*)"
+    required_tables: ["users"]
+    synonyms:
+      - "churn"
+      - "churn rate"
+      - "attrition rate"
+      - "customer churn"
+
+  cac:
+    name: "Customer Acquisition Cost (CAC)"
+    definition: "Total marketing expense divided by count of newly acquired customers"
+    sql_expression: "CAST(SUM(spend_amount) AS REAL) / COUNT(DISTINCT new_customer_id)"
+    required_tables: ["marketing_spend", "users"]
+    synonyms:
+      - "cac"
+      - "customer acquisition cost"
+      - "acquisition cost"
+
+  nrr:
+    name: "Net Revenue Retention (NRR)"
+    definition: "Ending MRR from existing customers divided by beginning MRR"
+    sql_expression: "CAST(SUM(ending_mrr) AS REAL) / SUM(starting_mrr)"
+    required_tables: ["subscriptions"]
+    synonyms:
+      - "nrr"
+      - "net revenue retention"
+      - "net retention"
+
+  ltv:
+    name: "Customer Lifetime Value (LTV)"
+    definition: "Average revenue per customer multiplied by customer lifetime"
+    sql_expression: "AVG(total_spend)"
+    required_tables: ["users", "orders"]
+    synonyms:
+      - "ltv"
+      - "lifetime value"
+      - "customer lifetime value"
+
+  eligible_free_rate:
+    name: "Eligible Free Rate (K-12)"
+    definition: "Free meal count divided by K-12 enrollment"
+    sql_expression: "`Free Meal Count (K-12)` / `Enrollment (K-12)`"
+    required_tables: ["frpm"]
+    synonyms:
+      - "eligible free rate"
+      - "free rate for k-12"
+      - "free meal percentage"
+
+ambiguous_terms:
+  active:
+    term: "active"
+    clarification: "The term 'active' is ambiguous. Did you mean users with a login in the past 30 days, or users with at least 1 completed transaction?"
+    options:
+      - "Active by login: `last_login_at >= NOW() - INTERVAL '30 days'`"
+      - "Active by purchase: `total_orders >= 1 AND last_order_date >= NOW() - INTERVAL '30 days'`"
+    synonyms:
+      - "active"
+      - "active user"
+      - "active users"
+      - "active customer"
+
+  top_customer:
+    term: "top customer"
+    clarification: "Does 'top customer' refer to the highest total dollar spend (LTV) or the highest order count?"
+    options:
+      - "By total spend: `ORDER BY SUM(amount) DESC`"
+      - "By order frequency: `ORDER BY COUNT(order_id) DESC`"
+    synonyms:
+      - "top customer"
+      - "top customers"
+      - "best customer"
+      - "vip customer"
+
+  best_performing:
+    term: "best performing"
+    clarification: "How should performance be measured: by gross revenue, unit sales volume, or customer rating?"
+    options:
+      - "By revenue: `ORDER BY SUM(price * quantity) DESC`"
+      - "By sales volume: `ORDER BY SUM(quantity) DESC`"
+      - "By average rating: `ORDER BY AVG(rating) DESC`"
+    synonyms:
+      - "best performing"
+      - "highest performing"
+      - "top performing"
+
+abstention_rules:
+  require_clarification_on_ambiguity: true
+  reject_unmapped_metrics: true

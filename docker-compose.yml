@@ -1,0 +1,58 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: assay-postgres
+    restart: unless-stopped
+    command: postgres -c shared_buffers=256MB -c default_transaction_read_only=off
+    environment:
+      POSTGRES_DB: assay_demo
+      POSTGRES_USER: assay_user
+      POSTGRES_PASSWORD: assay_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./demo/seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assay_user -d assay_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: assay-api
+    restart: unless-stopped
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - LLM_BASE_URL=http://host.docker.internal:11434/v1
+      - DATABASE_URL=postgresql://assay_user:assay_password@postgres:5432/assay_demo
+      - PYTHONPATH=/app
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: assay-streamlit
+    restart: unless-stopped
+    command: streamlit run demo/app.py --server.port 8501 --server.address 0.0.0.0
+    depends_on:
+      - api
+    environment:
+      - ASSAY_API_URL=http://api:8000
+    ports:
+      - "8501:8501"
+
+volumes:
+  pgdata:
