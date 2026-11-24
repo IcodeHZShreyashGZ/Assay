@@ -83,9 +83,10 @@
 ## 4. Repository Structure & File Mapping
 
 ```text
-sql-copilot/
+Assay/
 ├── data/
 │   ├── bird_dev_slice_250.json      # Stratified 250-query slice for rapid iteration
+│   ├── train_qlora.jsonl            # Formatted 4-bit QLoRA fine-tuning dataset
 │   └── adversarial_50.json          # 50 adversarial / SQL injection test cases
 ├── eval/
 │   ├── runner.py                    # Staged ablation runner producing JSONL traces

@@ -125,6 +125,23 @@ def execute_query_endpoint(req: QueryRequest) -> QueryResponse:
     question = req.question.strip()
     evidence = (req.evidence or "").strip()
 
+    active_guard = safety_guard_postgres if dialect == "postgres" else safety_guard_sqlite
+
+    # 0. Early Direct Injection / Destructive SQL Detection in Input
+    initial_check = active_guard.validate_ast(question)
+    if not initial_check.is_safe and initial_check.rule_triggered not in ("PARSE_ERROR", None):
+        elapsed = time.perf_counter() - t_start
+        TELEMETRY["blocked_attacks"] += 1
+        TELEMETRY["latencies_sec"].append(elapsed)
+        return QueryResponse(
+            status="blocked_safety",
+            sql=question,
+            guard_status=f"BLOCKED: {initial_check.rejection_reason}",
+            attempts_count=0,
+            latency_sec=round(elapsed, 3),
+            telemetry={"rule_triggered": initial_check.rule_triggered},
+        )
+
     # 1. Semantic Abstention Check
     abstention_decision = abstention_gate.evaluate_query(question, evidence)
     if abstention_decision.should_abstain:

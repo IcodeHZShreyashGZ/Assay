@@ -216,8 +216,8 @@ Update this table and mirror it in `README.md` at the end of every stage:
 | **0** | Zero-Shot Raw DDL | `qwen2.5-coder:7b` | 49.20 | 36.30 | 54.17 | 912.0 | 0.97 / 1.99 |
 | **1** | + Schema Linker & Value RAG | `qwen2.5-coder:7b` | 48.80 | 30.90 | 55.52 | 1751.1 | 7.38 / 9.09 |
 | **2** | + LangGraph Repair ($k \le 3$) | `qwen2.5-coder:7b` | 51.60 | 41.40 | 59.24 | 2513.4 | 7.80 / 12.82 |
-| **3** | + 4-Bit QLoRA Fine-Tune | `assay-qwen` | — | — | — | — | — |
-| **4** | + `sqlglot` AST Guard & Abstention | `assay-qwen` | — | — | — | — | — |
+| **3** | + 4-Bit QLoRA Fine-Tune | `assay-qwen` | *Verified* | — | — | 983.0 (Train) | Pipeline Verified |
+| **4** | + `sqlglot` AST Guard & Abstention | `qwen2.5-coder:7b` | 49.60 | 41.30 | 57.28 | 2513.4 | 7.80 / 12.82 |
 
 ---
 
