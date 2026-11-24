@@ -15,6 +15,7 @@ outputs/
 *.safetensors
 *.gguf
 eval/logs/*.jsonl
+data/*.jsonl
 pgdata/
 AGENTS.md
 Agents.md
