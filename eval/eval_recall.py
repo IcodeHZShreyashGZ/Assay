@@ -6,9 +6,10 @@ Measures:
 Target: >= 97% Table Recall.
 """
 
+import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 import sqlglot
 from sqlglot import exp
 
@@ -41,7 +42,8 @@ def extract_gold_schema_elements(sql: str) -> Tuple[Set[str], Set[str]]:
 def evaluate_schema_recall(
     slice_path: str = "data/bird_dev_slice_250.json",
     index_dir: str = "data/benchmarks/indices",
-    limit: int = None,
+    limit: Optional[int] = None,
+    use_embeddings: bool = True,
 ) -> Dict[str, Any]:
     with open(slice_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -72,7 +74,7 @@ def evaluate_schema_recall(
         gold_tables, gold_cols = extract_gold_schema_elements(gold_sql)
 
         # Run linking & pruning
-        linked = linker.link_and_prune(question, evidence, use_embeddings=True)
+        linked = linker.link_and_prune(question, evidence, use_embeddings=use_embeddings)
 
         pruned_tables = {t.lower() for t in linked.selected_tables}
         pruned_cols: Set[str] = set()
@@ -122,9 +124,53 @@ def evaluate_schema_recall(
         "total_queries": total_queries,
         "avg_table_recall": round(avg_table_recall, 2),
         "avg_col_recall": round(avg_col_recall, 2),
+        "target_table_recall_pct": 97.0,
         "perfect_table_matches": perfect_table_matches,
+        "perfect_table_matches_pct": round(perfect_t_pct, 2),
+        "use_embeddings": use_embeddings,
     }
 
 
 if __name__ == "__main__":
-    evaluate_schema_recall()
+    parser = argparse.ArgumentParser(description="Assay Schema Linking Recall evaluator.")
+    parser.add_argument(
+        "--slice",
+        default="data/bird_dev_slice_250.json",
+        help="Path to the evaluation slice JSON.",
+    )
+    parser.add_argument(
+        "--index-dir",
+        default="data/benchmarks/indices",
+        help="Directory containing serialized schema indices.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional limit on number of queries.",
+    )
+    parser.add_argument(
+        "--no-embeddings",
+        action="store_true",
+        help="Disable dense retrieval (useful when Ollama is offline).",
+    )
+    parser.add_argument(
+        "--output",
+        default="eval/results/stage1_recall.json",
+        help="Path to persist the recall summary JSON.",
+    )
+    args = parser.parse_args()
+
+    result = evaluate_schema_recall(
+        slice_path=args.slice,
+        index_dir=args.index_dir,
+        limit=args.limit,
+        use_embeddings=not args.no_embeddings,
+    )
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+        print(f"Saved recall summary to: {output_path}")

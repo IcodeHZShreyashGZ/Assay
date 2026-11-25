@@ -17,5 +17,3 @@ outputs/
 eval/logs/*.jsonl
 data/*.jsonl
 pgdata/
-AGENTS.md
-Agents.md

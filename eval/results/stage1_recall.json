@@ -1,0 +1,9 @@
+{
+  "total_queries": 250,
+  "avg_table_recall": 98.87,
+  "avg_col_recall": 98.55,
+  "target_table_recall_pct": 97.0,
+  "perfect_table_matches": 243,
+  "perfect_table_matches_pct": 97.2,
+  "use_embeddings": true
+}

@@ -1,7 +1,7 @@
 # PLAN.md — Assay Execution Blueprint
 
 > **Purpose:** Single source of truth for building **Assay** (a locally hosted, benchmarked Text-to-SQL agent). Designed for both human milestone tracking and autonomous AI coding agents.
-> **Companion Doc:** Always read `Agents.md` before modifying architecture or writing code.
+> **Companion Doc:** Always read `AGENTS.md` before modifying architecture or writing code.
 
 ---
 
@@ -16,7 +16,7 @@ AI agents and human contributors **must** obey these constraints at all times:
    - **Inference Backend:** Local Ollama OpenAI-compatible API at `http://localhost:11434/v1` (`LLM_BASE_URL` in `.env`). Always pass `num_ctx=8192` for SQL generation to prevent silent DDL truncation.
    - **Models:** `qwen2.5-coder:7b` (generation), `nomic-embed-text` (dense schema retrieval).
 3. **Database Safety Invariant:** Every SQLite connection in `eval/` and `src/` **must** use read-only URI mode (`sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)`) and a process-level **5-second timeout** (`multiprocessing`). Never use thread-level timeouts for SQLite.
-4. **Git Hygiene:** Never commit `.env`, `.venv/`, `data/benchmarks/`, `*.sqlite`, `*.gguf`, `checkpoints/`, or raw `eval/logs/*.jsonl`. Always commit `data/bird_dev_slice_250.json`, `eval/results/summary_metrics.json`, and `README.md` updates.
+4. **Git Hygiene:** Never commit `.env`, `.venv/`, `data/benchmarks/`, `*.sqlite`, `*.gguf`, `checkpoints/`, or raw `eval/logs/*.jsonl`. Always commit `data/bird_dev_slice_250.json`, `eval/results/*.json` (including `stage1_recall.json`), and `README.md` / `PLAN.md` updates. `data/train_qlora.jsonl` is generated locally and gitignored.
 5. **Resource Mutual Exclusion:**
    - Keep Docker stopped during Stages 0–3 (`sudo systemctl stop docker`).
    - Stop Ollama (`sudo systemctl stop ollama`) before launching Stage 3 QLoRA training so the trainer gets all 8 GB VRAM.
@@ -27,20 +27,26 @@ AI agents and human contributors **must** obey these constraints at all times:
 
 ```text
 Assay/
-├── Agents.md                    # Agent behavioral & coding rules
+├── AGENTS.md                    # Agent behavioral & coding rules
 ├── PLAN.md                      # This execution plan & status tracker
 ├── README.md                    # Public overview + ablation tables
+├── LICENSE                      # MIT license
 ├── requirements.txt             # Pinned Python dependencies
+├── .env.example                 # Config template [TRACKED]
 ├── .env                         # Local config (gitignored)
 ├── data/
 │   ├── bird_dev_slice_250.json  # Fixed stratified 250-query slice (seed=42) [TRACKED]
 │   ├── adversarial_50.json      # Safety, injection & abstention suite [TRACKED]
+│   ├── train_qlora.jsonl        # Generated SFT dataset [IGNORED]
 │   └── benchmarks/              # Local BIRD/Spider SQLite DBs [IGNORED]
 ├── eval/
 │   ├── make_slice.py            # Deterministic stratified slice generator
 │   ├── metrics.py               # 5s timeout RO grader (EX, R-VES, Soft F1)
 │   ├── runner.py                # Staged ablation runner (--stage 0..4)
 │   ├── taxonomy.py              # 6-bucket error classifier for failed traces
+│   ├── taxonomy_tagger.py       # CLI for taxonomy reports
+│   ├── eval_recall.py           # Table/column recall evaluator
+│   ├── analyze_failures.py      # Stage 0 failure deep-dive
 │   ├── logs/                    # Raw per-query JSONL traces [IGNORED]
 │   └── results/                 # Aggregated summary JSONs [TRACKED]
 ├── src/
@@ -50,7 +56,7 @@ Assay/
 │   │   └── linker.py            # BM25 + rapidfuzz LCS + nomic dense + FK closure
 │   ├── agent/
 │   │   ├── state.py             # TypedDict state schema for LangGraph
-│   │   ├── graph.py             # 4-node LangGraph loop (k <= 3 + CTE fallback)
+│   │   ├── graph.py             # 4-node loop (3 repairs / 4 executions + CTE fallback)
 │   │   └── prompts.py           # Dialect-aware system, repair & CTE prompts
 │   ├── safety/
 │   │   └── guard.py             # sqlglot AST single-SELECT + LIMIT 1000 validator
@@ -105,7 +111,7 @@ python -m eval.runner --stage 0 --slice data/bird_dev_slice_250.json
 ### Stage 1 — Schema Linking, Value RAG & Context Compression
 **Branch:** `stage-1-rag` | **Status:** `[x] Complete`
 
-**Objective:** Replace raw DDL dumps with a high-recall ($>97\%$ column/table recall) pruned schema enriched with matched cell literals, raising EX while reducing average prompt tokens.
+**Objective:** Replace raw DDL dumps with a high-recall ($>97\%$ column/table recall) pruned schema enriched with matched cell literals, and measure the accuracy/token trade-off against Stage 0.
 
 **Tasks:**
 - [x] Implement `src/schema/indexer.py`:
@@ -118,8 +124,10 @@ python -m eval.runner --stage 0 --slice data/bird_dev_slice_250.json
 - [x] Wire `--stage 1` into `eval/runner.py`.
 
 **Verification Gate (Must Pass Before Stage 2):**
-- Measure **Table Recall** and **Column Recall** against gold SQL tables/columns on the 250-query slice (Target: $\ge 97\%$ table recall). -> Passed: 99.40% Table Recall, 98.42% Column Recall.
+- Measure **Table Recall** and **Column Recall** against gold SQL tables/columns on the 250-query slice (Target: $\ge 97\%$ table recall). -> Passed on re-run (2026-11-25): **98.87% Table Recall, 98.55% Column Recall** (243/250 queries with 100% table recall). A prior run measured 98.47% / 98.45%; dense retrieval introduces small run-to-run variance. Persisted to `eval/results/stage1_recall.json`. The earlier 99.40% / 98.42% figures were not reproducible against the committed indices.
 - Run `python -m eval.runner --stage 1 --slice data/bird_dev_slice_250.json` and confirm metrics are recorded. -> Completed.
+
+**Observed outcome (250-query slice):** EX moved 49.20% → 48.80% (−0.40 pp), R-VES 36.30% → 30.90%, Soft F1 54.17% → 55.52% (+1.35 pp), and average prompt tokens rose 912.0 → 1751.1 (+92.0%). The planned prompt-token reduction did not materialize on this slice; the richer compact schema increased context size.
 
 ---
 
@@ -143,43 +151,50 @@ python -m eval.runner --stage 0 --slice data/bird_dev_slice_250.json
 ```bash
 python -m eval.runner --stage 2 --slice data/bird_dev_slice_250.json
 ```
-- Confirm zero infinite loops (hard cap `retry_count <= 3`), measurable EX gain over Stage 1, and documented p50/p95 latency impact. -> Passed: EX 51.60% (+2.80 pp over Stage 1), R-VES 41.40% (+10.50 pp), Soft F1 59.24% (+3.72 pp), 10.87% repair recovery rate, avg attempts 1.42.
+- Confirm zero infinite loops (hard cap `retry_count <= 3`), measurable EX gain over Stage 1, and documented p50/p95 latency impact. -> Passed: EX 51.60% (+2.80 pp over Stage 1), R-VES 41.40% (+10.50 pp), Soft F1 59.24% (+3.72 pp), 10.87% repair recovery rate (5/46), avg attempts 1.42.
+
+**Implementation note:** `retry_count` is capped at 3, which permits one initial generation plus up to three repairs (**four total executions**). In the Stage 2 run, 27 queries reached four executions; all 27 failed, and all 27 final queries used the CTE fallback. The CTE fallback fires at `retry_count == 2` (the third execution), not on the first repair.
 
 ---
 
 ### Stage 3 — Domain Adaptation via 4-Bit QLoRA Fine-Tuning
-**Branch:** `stage-3-qlora` | **Status:** `[x] Complete (Implementation & Dataset Generation Verified)`
+**Branch:** `stage-3-qlora` | **Status:** `[~] Implementation & dataset verified; fine-tuned model evaluation pending`
 
 **Objective:** Fine-tune `Qwen2.5-Coder` locally on the RTX 5070 (8 GB VRAM) using train–inference aligned prompts, then serve the merged quantized model through Ollama.
 
-**Pre-Flight Checklist (Mandatory on 8 GB VRAM):**
-- [x] Stop Ollama (`sudo systemctl stop ollama`) and confirm `nvidia-smi` shows `< 300 MiB` VRAM used.
-- [x] Implement BIRD train/dev data pipeline in `training/build_dataset.py` with fallback to dev slice if full train split is offline.
+**Pre-Flight Checklist (Mandatory on 8 GB VRAM; environment-specific, not recorded in the repository):**
+- Stop Ollama (`sudo systemctl stop ollama`) and confirm `nvidia-smi` shows `< 300 MiB` VRAM used.
+- Keep Docker stopped while training so the trainer has exclusive access to the GPU.
+- Implement BIRD train/dev data pipeline in `training/build_dataset.py` with fallback to dev slice if full train split is offline.
 
 **Tasks:**
 - [x] Implement `training/build_dataset.py`:
   - Format BIRD `train` queries using the **exact** Stage 1 compact DDL prompt format.
   - Inject random distractor tables/columns alongside gold tables to prevent train–inference distribution shift.
-  - Format concise Chain-of-Thought rationales (`Schema Mapping -> Join Path -> Filters -> SQL`) with assistant-only loss masking.
+  - Format concise gold-SQL-derived Chain-of-Thought rationales (`Schema Mapping -> Join Path -> Filters -> SQL`). Execution verification of the rationales is not yet implemented.
+  - [ ] Add assistant-only loss masking. The current `SFTTrainer` path formats full chat messages and trains on the complete text.
 - [x] Implement `training/train_qlora.py`:
-  - Load pre-quantized 4-bit NF4 base (`unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit` or `Qwen2.5-Coder-3B-Instruct` if VRAM-bound) with `gradient_checkpointing=True`, `r=32`, `alpha=64`, all linear projections, `save_total_limit=2`.
+  - Load the base model and attach a `BitsAndBytesConfig` 4-bit NF4 quantization config (or a pre-quantized checkpoint) with `gradient_checkpointing=True`, `r=32`, `alpha=64`, all linear projections, `save_total_limit=2`.
   - Added `--dry-run` and `--merge` flags for validation and export.
 - [x] Create `training/Modelfile` for Ollama serving template for merged GGUF (`ollama create assay-qwen -f training/Modelfile`).
 - [x] Wire `--stage 3` / `--stage qlora` into `eval/runner.py` (`run_stage_3`) logging to `eval/logs/stage3_qlora.jsonl` and `eval/results/stage3_qlora.json`.
-- [x] Generate formatted fine-tuning dataset `data/train_qlora.jsonl` (250 stratified samples, avg 983 tokens, verified structure).
+- [x] Generate formatted fine-tuning dataset `data/train_qlora.jsonl` (250 stratified samples, avg 983.8 estimated tokens, verified structure).
+
+**Verification status (2026-11-25):** `data/train_qlora.jsonl` exists locally (250 samples, avg 983.8 estimated tokens, 11 databases) but is gitignored. No `eval/results/stage3_qlora.json`, merged checkpoint/GGUF, full-dev result, or Spider result is present. The gate below has **not** been executed, so Stage 3 EX/R-VES/Soft F1 are not reported.
 
 **Verification Gate (Must Pass Before Stage 4):**
 ```bash
 # Update GENERATION_MODEL=assay-qwen in .env, then evaluate:
 python -m eval.runner --stage 3 --slice data/bird_dev_slice_250.json
-# Run full 1,534-query BIRD dev + Spider dev generalization check:
+# Run full 1,534-query BIRD dev check (Spider is not wired into this runner):
 python -m eval.runner --stage 3 --full-dev
 ```
+> **Not run.** There is no fine-tuned model artifact or Stage 3 evaluation result in this repository snapshot.
 
 ---
 
 ### Stage 4 — Deterministic AST Safety, Abstention & Deployment
-**Branch:** `stage-4-safety-deploy` | **Status:** `[x] Complete`
+**Branch:** `stage-4-safety-deploy` | **Status:** `[~] Implementation complete; verification caveats documented`
 
 **Objective:** Harden Assay with static AST validation, semantic abstention, PostgreSQL transpilation, and a containerized FastAPI + Streamlit demo.
 
@@ -193,9 +208,11 @@ python -m eval.runner --stage 3 --full-dev
 - [x] Implement `src/api/abstention.py` + `demo/glossary.yaml` + `src/api/main.py` (FastAPI endpoints with `sqlglot.transpile(..., read="sqlite", write="postgres")` and latency/token telemetry).
 - [x] Implement `demo/seed.sql`, `demo/app.py` (thin Streamlit UI), `demo/Dockerfile`, and `demo/docker-compose.yml` (`postgres:16-alpine` with `shared_buffers=256MB`).
 
+**Verification status (2026-11-25):** The 50-case adversarial/abstention suite passes 50/50 (40 blocked by the Layer 1 AST guard, 10 abstained by the glossary gate). The regression artifact is a **replay of Stage 2 predictions** through the AST guard + `LIMIT 1000`, not a fresh LLM run; its latency is a constant 7.8s placeholder and its token counts, attempt counts, and repair recovery are inherited from Stage 2. The current `run_stage_4` implementation performs a fresh agent run, so re-running it will not reproduce the committed replay artifact exactly. `LIMIT 1000` caused 5 previously correct predictions with 3,715–29,936 rows to be truncated, which accounts for the Stage 2 → Stage 4 EX drop. PostgreSQL transpilation is implemented, but the API executes SQLite only; the demo PostgreSQL container is seeded and unused. The Docker smoke test is not evidenced by committed artifacts.
+
 **Verification Gate (Final Release):**
 ```bash
-# 1. Safety & Abstention suite: 100% block rate on destructive queries (Passed: 50/50, 100.0%)
+# 1. Safety & Abstention suite: 100% defense rate (Passed: 50/50 = 40 AST-blocked + 10 abstained)
 python -m eval.runner --stage 4 --adversarial data/adversarial_50.json
 
 # 2. Regression check: EX on 250-query slice must not drop vs Stage 3
@@ -204,6 +221,7 @@ python -m eval.runner --stage 4 --slice data/bird_dev_slice_250.json
 # 3. End-to-end Docker smoke test
 docker compose -f demo/docker-compose.yml up --build -d
 ```
+> **Gate caveat:** Stage 3 has no evaluation artifact, so the "must not drop vs Stage 3" comparison cannot be evaluated. Stage 4 EX is 49.60% vs Stage 2's 51.60% (−2.00 pp); the difference comes from the guard replay/LIMIT semantics, not a fresh model run. The Docker smoke test has not been verified in committed artifacts. Because Stage 3's gate was not executed, Stage 4's implementation also deviates from Ground Rule 1's strict stage gating; treat it as an implementation artifact, not a gate-passed release.
 
 ---
 
@@ -215,9 +233,11 @@ Update this table and mirror it in `README.md` at the end of every stage:
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **0** | Zero-Shot Raw DDL | `qwen2.5-coder:7b` | 49.20 | 36.30 | 54.17 | 912.0 | 0.97 / 1.99 |
 | **1** | + Schema Linker & Value RAG | `qwen2.5-coder:7b` | 48.80 | 30.90 | 55.52 | 1751.1 | 7.38 / 9.09 |
-| **2** | + LangGraph Repair ($k \le 3$) | `qwen2.5-coder:7b` | 51.60 | 41.40 | 59.24 | 2513.4 | 7.80 / 12.82 |
-| **3** | + 4-Bit QLoRA Fine-Tune | `assay-qwen` | *Verified* | — | — | 983.0 (Train) | Pipeline Verified |
-| **4** | + `sqlglot` AST Guard & Abstention | `qwen2.5-coder:7b` | 49.60 | 41.30 | 57.28 | 2513.4 | 7.80 / 12.82 |
+| **2** | + LangGraph Repair (3 repairs / 4 executions) | `qwen2.5-coder:7b` | 51.60 | 41.40 | 59.24 | 2513.4 | 7.80 / 12.82 |
+| **3** | + 4-Bit QLoRA Fine-Tune | `assay-qwen` | *Not evaluated* | — | — | 983.8 (Train est.) | Pipeline only |
+| **4** | + `sqlglot` AST Guard & Abstention (guard replay) | `qwen2.5-coder:7b` | 49.60 | 41.30 | 57.28 | 2513.4 (inherited) | 7.80 / 7.80 (replay placeholder) |
+
+**Ledger provenance:** Rows 0–2 and 4 are backed by `eval/results/*.json`. Row 3 has no model evaluation artifact. Row 4 is a re-grade of Stage 2 predictions, not a fresh end-to-end run; its latency and token values are inherited. Stage 1 table/column recall is persisted in `eval/results/stage1_recall.json` (98.87% / 98.55% on the latest run).
 
 ---
 
